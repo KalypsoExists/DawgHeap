@@ -84,10 +84,8 @@ public class MultiThreadedFileHeap {
         for(int i = 0; i < numBins; i++)
             heap.freeBlockBin[i] = new ConcurrentLinkedQueue<>();
 
-        if(dump) {
-            heap.dumpTruck = new DumpTruck(location, name, 8192);
-            heap.enableDumping();
-        }
+        heap.dumpTruck = new DumpTruck(location, name, 8192);
+        if(dump) heap.enableDumping();
 
         heap.init();
 
@@ -286,6 +284,8 @@ public class MultiThreadedFileHeap {
                 /* The idea is, that instead of removing a free block O(n)
                  * The code marks it as invalid and this function removes it performantly */
                 if(block.valid) return block;
+                else freeBlocksByOffset.remove(block);
+
             }
         }
 
@@ -326,7 +326,6 @@ public class MultiThreadedFileHeap {
 
                 free = pollBin(binIndexFor(occupy));
 
-
                 if(free != null) {
                     freeBlocksByOffset.remove(free.offset);
 
@@ -341,7 +340,7 @@ public class MultiThreadedFileHeap {
                         occupy += leftOver;
                     } else {
                         // Separate the leftover free space
-                        Block leftOverBlock = new Block(free.offset + size, leftOver);
+                        Block leftOverBlock = new Block(free.offset + occupy, leftOver);
 
                         binPush(leftOverBlock);
                         freeBlocksByOffset.put(leftOverBlock.offset, leftOverBlock);
@@ -383,10 +382,13 @@ public class MultiThreadedFileHeap {
 
     public CompletableFuture<Void> freeBlock(int handle) {
 
-        Block block = usedBlocksByHandle.get(handle);
-        if(block == null) throw new IllegalArgumentException("Invalid handle");
+        Block b = usedBlocksByHandle.get(handle);
+        if(b == null) throw new IllegalArgumentException("Invalid handle");
 
         return CompletableFuture.supplyAsync(() -> {
+
+            Block block = usedBlocksByHandle.get(handle);
+            if(block == null) throw new IllegalArgumentException("Invalid handle");
 
             long start = System.nanoTime();
 
@@ -451,11 +453,15 @@ public class MultiThreadedFileHeap {
 
     public CompletableFuture<Void> write(int handle, ByteBuffer src) {
 
-        Block block = usedBlocksByHandle.get(handle);
-        if(block == null) throw new IllegalArgumentException("Invalid handle");
+        Block b = usedBlocksByHandle.get(handle);
+        if(b == null) throw new IllegalArgumentException("Invalid handle");
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                // Checking again..?
+                Block block = usedBlocksByHandle.get(handle);
+                if(block == null) throw new IllegalArgumentException("Invalid handle");
+
                 int bytes = src.remaining();
                 block.writeItem(channel, src);
                 if(dumpTruck.isEnabled()) dumpTruck.dump("Finished writing (%d) bytes to block (%d)", bytes, handle);
@@ -469,11 +475,15 @@ public class MultiThreadedFileHeap {
     }
 
     public CompletableFuture<Void> read(int handle, ByteBuffer dest) {
-        Block block = usedBlocksByHandle.get(handle);
-        if(block == null) throw new IllegalArgumentException("Invalid handle");
+
+        Block b = usedBlocksByHandle.get(handle);
+        if(b == null) throw new IllegalArgumentException("Invalid handle");
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                Block block = usedBlocksByHandle.get(handle);
+                if(block == null) throw new IllegalArgumentException("Invalid handle");
+
                 int marker = dest.position();
                 block.readItem(channel, dest);
                 if(dumpTruck.isEnabled()) dumpTruck.dump("Finished reading (%d) bytes from block (%d)", dest.limit()-marker, handle);
@@ -539,8 +549,8 @@ public class MultiThreadedFileHeap {
     private final AtomicInteger handleCounter = new AtomicInteger();
 
     private int allocateHandle() {
-        if(!freeHandles.isEmpty())
-            return freeHandles.poll();
+        Integer handle = freeHandles.poll();
+        if(handle != null) return handle;
 
         return handleCounter.getAndIncrement();
     }
