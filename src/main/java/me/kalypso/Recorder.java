@@ -58,25 +58,21 @@ public class Recorder {
     }
 
     public static String asMillis(StringBuilder sb, long nano) {
-        String s = Long.toString(nano);
-        int len = s.length();
+        long ms = nano / 1_000_000;
+        long remainder = Math.abs(nano % 1_000_000);
 
-        if (len > 6) {
-            sb.append(s).insert(len - 6, '.');
-        } else {
-            sb.append("0.");
-            for (int j = 0; j < 6 - len; j++) sb.append('0');
-            sb.append(s);
+        sb.setLength(0);
+        sb.append(ms);
+
+        if (remainder != 0) {
+            sb.append('.');
+            String remStr = Long.toString(remainder);
+            for (int i = remStr.length(); i < 6; i++) sb.append('0');
+            sb.append(remStr);
+            while (sb.charAt(sb.length() - 1) == '0') sb.setLength(sb.length() - 1);
         }
 
-        int last = sb.length() - 1;
-        while (last >= 0 && sb.charAt(last) == '0') {
-            last--;
-        }
-        if (last >= 0 && sb.charAt(last) == '.') {
-            last--;
-        }
-        return sb.substring(0, last + 1);
+        return sb.toString();
     }
 
 }
